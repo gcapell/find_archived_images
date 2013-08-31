@@ -8,10 +8,12 @@ import (
 	"flag"
 	"time"
 	"path"
+	"path/filepath"
 )
 
 var (
 	archive = flag.String("archive", "/Volumes/Pictures", "top-level archive directory")
+	srcDir = flag.String("d", ".", "Directory to search for images")
 )
 
 func checkCopied(src string) error {
@@ -19,6 +21,7 @@ func checkCopied(src string) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil {
 		return err
@@ -28,10 +31,6 @@ func checkCopied(src string) error {
 	x, err := exif.Decode(f)
 	if err != nil {
 		return err
-	}
-	err = f.Close()
-	if err != nil {
-		log.Printf("err %s closing %q", err, src)
 	}
 
 	date, err := x.Get(exif.DateTimeOriginal)
@@ -49,23 +48,41 @@ func checkCopied(src string) error {
 	if err != nil {
 		return err
 	}
+	defer dstF.Close()
 	fi, err = dstF.Stat()
 	dstSize := fi.Size()
 
 	if dstSize != srcSize {
 		return fmt.Errorf("src:%q (%d bytes), dst:%q (%d bytes)", src, srcSize, dst, dstSize)
 	}
-	log.Printf("%q->%q", src, dst)
+	// log.Printf("%q->%q", src, dst)
+	return nil
+}
+
+func walker(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		log.Println("walker", path, err)
+		return nil
+	}
+	if info.IsDir() {
+		return nil
+	}
+	err = checkCopied(path)
+	if err != nil {
+		log.Println(path, err)
+		return nil
+	}
+	err = os.Remove(path)
+	if err != nil {
+		log.Println("removing", path, err)
+		return err	// worth stopping because this is weird
+	}
+	log.Println("deleted", path)
 	return nil
 }
 
 func main() {
 	flag.Parse()
-	fname := flag.Arg(0)
-	err := checkCopied(fname)
-	if err != nil {
-		log.Println(fname, err)
-		return
-	}
-	log.Println("safe to delete", fname)
+	
+	filepath.Walk(*srcDir, walker)
 }
